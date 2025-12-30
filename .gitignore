@@ -1,3 +1,26 @@
+#Source
+*.mp4
+*.db
+*.csv
+tests.ipynb
+
+acople_pintubular_backup.py
+extraccion_stickout_backup.py
+
+risk_detection/risk_clips/*
+!risk_detection/risk_clips/
+
+risk_detection/logs/*
+!risk_detection/logs/
+
+risk_detection/trained_model/*
+!risk_detection/trained_model/
+
+risk_detection/videos/*
+!risk_detection/videos/
+
+mano_safata2.py
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
