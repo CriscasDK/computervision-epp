@@ -61,7 +61,7 @@ class VideoClipWriter:
                 logger.error("🔴 [ClipWriter] El hilo no pudo detenerse a tiempo.")
         
         # Cerrar todos los archivos de video que hayan quedado abiertos
-        for writer, file_path in self.active_writers.values():
+        for writer, file_path, _, _ in self.active_writers.values():
             try:
                 writer.release()
                 logger.info(f"  > Archivo de clip cerrado (por stop): {file_path}")
@@ -82,11 +82,11 @@ class VideoClipWriter:
             # Se descarta el frame más antiguo para priorizar el tiempo real.
             pass 
 
-    def start_clip(self, scene_name, pre_roll_frames, video_file_name):
+    def start_clip(self, scene_name, pre_roll_frames, video_file_name, duration_sec=None):
         """Envía un comando para INICIAR la grabación de un clip (no bloqueante)."""
         if not self.running: return
         logger.debug(f"[ClipWriter] Comando START recibido para: {scene_name}")
-        self.command_queue.put(("START", scene_name, (pre_roll_frames, video_file_name)))
+        self.command_queue.put(("START", scene_name, (pre_roll_frames, video_file_name, duration_sec)))
 
     def stop_clip(self, scene_name):
         """Envía un comando para DETENER la grabación de un clip (no bloqueante)."""
@@ -107,8 +107,8 @@ class VideoClipWriter:
                     cmd, scene_name, data = self.command_queue.get_nowait()
                     
                     if cmd == "START":
-                        pre_roll_frames, video_file_name = data
-                        self._handle_start(scene_name, pre_roll_frames, video_file_name)
+                        pre_roll_frames, video_file_name, duration_sec = data
+                        self._handle_start(scene_name, pre_roll_frames, video_file_name, duration_sec)
                     elif cmd == "STOP":
                         self._handle_stop(scene_name)
                     elif cmd == "STOP_ALL":
@@ -130,8 +130,16 @@ class VideoClipWriter:
                     # Si hay grabaciones, escribir frames
                     while not self.frame_queue.empty():
                         frame = self.frame_queue.get_nowait()
-                        for writer, _ in self.active_writers.values():
+                        for _scene_name in list(self.active_writers.keys()):
+                            writer, fpath, frames_written, max_frames = self.active_writers[_scene_name]
+                            
                             writer.write(frame)
+                            frames_written += 1
+                            
+                            if max_frames is not None and frames_written >= max_frames:
+                                self._handle_stop(_scene_name)
+                            else:
+                                self.active_writers[_scene_name] = (writer, fpath, frames_written, max_frames)
             
             except queue.Empty:
                 pass # No hay frames, continuar
@@ -142,7 +150,7 @@ class VideoClipWriter:
             # en un bucle vacío si no hay frames/comandos.
             time.sleep(0.001)
 
-    def _handle_start(self, scene_name, pre_roll_frames, video_file_name):
+    def _handle_start(self, scene_name, pre_roll_frames, video_file_name, duration_sec):
         """Lógica para iniciar una grabación (llamado por el worker)."""
         if scene_name in self.active_writers:
             logger.warning(f"[ClipWriter] 'START' ignorado: {scene_name} ya está grabando.")
@@ -158,6 +166,7 @@ class VideoClipWriter:
             height, width, _ = first_frame.shape
             # Asumimos que el FPS del pre-roll es el FPS de grabación
             fps = len(pre_roll_frames) / max(self.cfg.CLIP_PREROLL_SEC, 1.0)
+            max_frames = int(fps * duration_sec) if duration_sec else None
             
             # Crear nombre de archivo único
             # ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -176,8 +185,12 @@ class VideoClipWriter:
                 writer.write(frame)
                 
             # Añadir a la lista de grabadores activos
-            self.active_writers[scene_name] = (writer, file_path)
-            logger.info(f"🟢 [ClipWriter] Grabación INICIADA para {scene_name} → {file_path}")
+            self.active_writers[scene_name] = (writer, file_path, 0, max_frames)
+            
+            if duration_sec:
+                 logger.info(f"🟢 [ClipWriter] Grabación INICIADA ({duration_sec}s post-roll) para {scene_name} → {file_path}")
+            else:
+                 logger.info(f"🟢 [ClipWriter] Grabación INICIADA para {scene_name} → {file_path}")
 
         except Exception as e:
             logger.error(f"[ClipWriter] Fallo al iniciar clip para {scene_name}: {e}", exc_info=True)
@@ -191,7 +204,7 @@ class VideoClipWriter:
             return
         
         try:
-            writer, file_path = self.active_writers.pop(scene_name)
+            writer, file_path, _, _ = self.active_writers.pop(scene_name)
             writer.release()
             logger.info(f"🔴 [ClipWriter] Grabación DETENIDA para {scene_name} → {file_path}")
         except Exception as e:

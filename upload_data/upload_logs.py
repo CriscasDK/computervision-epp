@@ -39,7 +39,7 @@ def main():
         # sys.exit(1)
 
     # --- 1. Encontrar y Procesar BBDD (Transformación 1) ---
-    target_db_name = "registros_riesgos_upload.db"
+    target_db_name = "person_events_upload.db"
     db_file_path = os.path.join(cfg.LOG_DIR, target_db_name)
     #target_db = os.path.join(cfg.LOG_DIR, "registros_riesgos_upload.db")
     if not os.path.exists(db_file_path):
@@ -67,8 +67,8 @@ def main():
     enriched_df = db_processor.enrich_summary_data(summary_df_with_merged_files, video_url_map)
 
     # --- 5. Guardar y Subir CSV Final (Carga 2) ---
-    summary_csv_path = os.path.join(cfg.LOG_DIR, f"summary_results.csv")
-    summary_db_path = os.path.join(cfg.LOG_DIR, f"summary_results.db")
+    summary_csv_path = os.path.join(cfg.LOG_DIR, f"summary_events_epp.csv")
+    summary_db_path = os.path.join(cfg.LOG_DIR, f"summary_events_epp.db")
     try:
         db_processor.write_or_append_csv(enriched_df, summary_csv_path)
         # enriched_df.to_csv(summary_csv_path, index=False, date_format='%Y-%m-%dT%H:%M:%S.%f', encoding='utf-8-sig')
@@ -77,7 +77,7 @@ def main():
         
     try:
         enriched_df
-        db_processor.write_or_append_dbsqlite(enriched_df, summary_db_path, "summary_riesgos")
+        db_processor.write_or_append_dbsqlite(enriched_df, summary_db_path, "person_events")
     except Exception as e:
         logger.error(f"Error al guardar la DB: {e}")
 

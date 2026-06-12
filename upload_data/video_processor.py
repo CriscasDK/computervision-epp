@@ -1,8 +1,10 @@
 import os
 import logging
 import sys
+import pandas as pd
 from moviepy import VideoFileClip, concatenate_videoclips
 from config_uploader import ConfigUploader
+import time
 
 logging.basicConfig(
     level=logging.INFO,
@@ -23,18 +25,22 @@ def merge_incident_videos(summary_df):
     files_to_delete = set()
 
     for idx, row in summary_df.iterrows():
+
+        if isinstance(row['video_files'], float) and pd.isna(row['video_files']):
+            continue
+
         video_files = row['video_files']
         
         if not video_files: # 0 videos
-            logger.info(f"  Incidente {row['incident_id']} no tiene video.")
+            logger.info(f"  Evento {row['event_type']} no tiene video.")
             continue
             
         elif len(video_files) == 1: # 1 video
-            logger.info(f"  Incidente {row['incident_id']} tiene 1 video, no necesita merge.")
+            logger.info(f"  Evento {row['event_type']} tiene 1 video, no necesita merge.")
             summary_df.at[idx, 'final_video_file'] = video_files[0]
             
         else: # 2 o más videos (¡necesita merge!)
-            logger.warning(f"  Incidente {row['incident_id']} tiene {len(video_files)} videos. Iniciando merge...")
+            logger.warning(f"  Evento {row['event_type']} tiene {len(video_files)} videos. Iniciando merge...")
             
             clips_to_merge = []
             valid_files_to_merge = []
@@ -48,7 +54,7 @@ def merge_incident_videos(summary_df):
                     logger.error(f"    No se encontró el archivo {file_path} para el merge.")
             
             if not clips_to_merge:
-                logger.error(f"  Incidente {row['incident_id']} no tiene archivos válidos para merge.")
+                logger.error(f"  Evento {row['event_type']} no tiene archivos válidos para merge.")
                 continue
 
             base_name = os.path.splitext(video_files[0])[0]
@@ -63,7 +69,7 @@ def merge_incident_videos(summary_df):
                 logger.info(f"  ✅ Merge completado → {merged_file_name}")
 
             except Exception as e:
-                logger.error(f"  ❌ Fallo el merge para el incidente {row['incident_id']}: {e}")
+                logger.error(f"  ❌ Fallo el merge para un evento {row['event_type']}: {e}")
                 summary_df.at[idx, 'final_video_file'] = video_files[0]
             finally:
                 for clip in clips_to_merge:
@@ -111,6 +117,10 @@ def upload_final_videos(summary_df, azure_handler):
                 logger.info(f"  Archivo de video local borrado: {local_file_path}")
             except Exception as e:
                 logger.error(f"  Error borrando video local {local_file_path}: {e}")
+            
+            # Pausa de 5 segundos entre subidas para no saturar la red
+            logger.info("  ⏳ Pausa de 5 segundos antes del siguiente video...")
+            time.sleep(5)
         else:
             logger.error(f"  No se borrará {local_file_path} debido a fallo en la subida.")
             

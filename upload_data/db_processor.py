@@ -34,6 +34,142 @@ def find_db():
 #         return None
 #     return db_path_upload
 
+def process_reba_events(df):
+
+    df_reba = df[df["event_type"] == "reba_high"]
+
+    # Ordenar por escena y luego por tiempo
+    df_reba = df_reba.sort_values(by=['track_id', 'event_type', 'timestamp'])
+    # Encontrar los "saltos" de tiempo
+    time_diff = df_reba.groupby(['track_id', 'event_type'])['timestamp'].diff()
+    
+    # Identificar el inicio de un nuevo incidente
+    is_new_incident = (time_diff.isna()) | (time_diff > pd.Timedelta(seconds=cfg.GAP_THRESHOLD_SECONDS))
+    # Crear un ID de incidente único (usando cumsum)
+    incident_grouper = is_new_incident.cumsum()
+    
+    def aggregate_video_files(series):
+        unique_files = series.dropna().unique().tolist()
+        return unique_files if unique_files else [] # Devolver lista vacía en lugar de None
+
+    # Agrupar por escena y ID de incidente, y agregar
+    df_result_reba = df_reba.groupby(['track_id', 'event_type', incident_grouper.rename('incident_id')]).agg(
+        t_start=('timestamp', 'min'),
+        t_end=('timestamp', 'max'),
+        reba_score_a_max=("reba_score_a", "max"),
+        reba_score_b_max=("reba_score_b", "max"),
+        reba_score_total_max=("reba_total", "max"),
+        reba_confidence_max=("confidence", "max"),
+        # Si se requiere, crear una lista de archivos de video para este incidente
+        video_files=('video_file', aggregate_video_files)
+    ).reset_index()
+
+    # Calcular la duración
+    df_result_reba['duration_seconds'] = (df_result_reba['t_end'] - df_result_reba['t_start']).dt.total_seconds()
+
+    logger.info(f"Procesamiento de BBDD Eventos REBA completo. {len(df_reba)} registros consolidados en {len(df_result_reba)} incidentes posturales")
+
+    return df_result_reba
+
+def process_mac_events(df):
+
+    df_mac = df[df["event_type"] == "mac_high"]
+
+    # Ordenar por escena y luego por tiempo
+    df_mac = df_mac.sort_values(by=['track_id', 'event_type', 'timestamp'])
+    # Encontrar los "saltos" de tiempo
+    time_diff = df_mac.groupby(['track_id', 'event_type'])['timestamp'].diff()
+    
+    # Identificar el inicio de un nuevo incidente
+    is_new_incident = (time_diff.isna()) | (time_diff > pd.Timedelta(seconds=cfg.GAP_THRESHOLD_SECONDS))
+    # Crear un ID de incidente único (usando cumsum)
+    incident_grouper = is_new_incident.cumsum()
+    
+    def aggregate_video_files(series):
+        unique_files = series.dropna().unique().tolist()
+        return unique_files if unique_files else [] # Devolver lista vacía en lugar de None
+
+    # Agrupar por escena y ID de incidente, y agregar
+    df_result_mac = df_mac.groupby(['track_id', 'event_type', incident_grouper.rename('incident_id')]).agg(
+        t_start=('timestamp', 'min'),
+        t_end=('timestamp', 'max'),
+        mac_score_b_max=("mac_score_b", "max"),
+        mac_score_c_max=("mac_score_c", "max"),
+        mac_score_d_max=("mac_score_d", "max"),
+        mac_score_total_max=("mac_total", "max"),
+        mac_confidence_max=("confidence", "max"),
+        # Si se requiere, crear una lista de archivos de video para este incidente
+        video_files=('video_file', aggregate_video_files)
+    ).reset_index()
+
+    # Calcular la duración
+    df_result_mac['duration_seconds'] = (df_result_mac['t_end'] - df_result_mac['t_start']).dt.total_seconds()
+
+    logger.info(f"Procesamiento de BBDD Eventos MAC completo. {len(df_mac)} registros consolidados en {len(df_result_mac)} incidentes MAC")
+
+    return df_result_mac
+
+def process_zone_events(df):
+
+    df_zone = df[df["event_type"] == "zone_snapshot"]
+    df_zone = df_zone.sort_values(by=['timestamp'])
+    df_zone = df_zone[["event_type","timestamp", "people_in_zone"]]
+
+    df_result = (
+        df_zone
+        # 1️. Crear la hora base con fecha incluida
+        .assign(hour_floor=df_zone["timestamp"].dt.floor("h"))
+        
+        # 2️. Agrupar por esa hora real
+        .groupby("hour_floor", as_index=False)
+        .agg(
+            event_type=("event_type", "first"),
+            people_in_zone_prom=("people_in_zone", "mean"),
+            people_in_zone_max=("people_in_zone", "max"),
+            people_in_zone_mode=(
+                "people_in_zone",
+                lambda x: x.mode().iloc[0] if not x.mode().empty else None
+            )
+        )
+    )
+
+    # # 3️. Construir time_start y time_end con fecha correcta
+    df_result["t_start"] = df_result["hour_floor"]
+    df_result["t_end"] = df_result["hour_floor"] + pd.Timedelta(minutes=59, seconds=59)
+
+    # # 4. Si quieres mantener también el número de hora
+    df_result["hour"] = df_result["hour_floor"].dt.hour
+
+    # # 5. Duración en segundos
+    df_result["duration_seconds"] = (
+        df_result["t_end"] - df_result["t_start"]
+    ).dt.total_seconds()
+
+    # # 56. Orden final de columnas
+    df_result_zone = df_result[
+        ["event_type", "t_start", "t_end", "duration_seconds", "people_in_zone_prom", "people_in_zone_max", "people_in_zone_mode"]
+    ]
+    logger.info(f"Procesamiento de BBDD Eventos Zone completo. {len(df_result_zone)} registros consolidados.")
+
+    return df_result_zone
+
+def process_epp_events(df):
+
+    df_epp = df[df["event_type"] == "epp_noncompliant"]
+    df_epp = df_epp.sort_values(by=['track_id', 'timestamp'])
+    df_epp["t_start"], df_epp["t_end"] = df_epp["timestamp"], df_epp["timestamp"]
+
+    df_epp["duration_seconds"] = (
+        df_epp["t_end"] - df_epp["t_start"]
+    ).dt.total_seconds()
+    df_epp["video_file"] = df_epp["video_file"].map(lambda x: [x])
+    df_epp = df_epp.rename(columns={"video_file": "video_files"})
+
+    df_result_epp = df_epp[
+        ["track_id", "event_type", "t_start", "t_end", "duration_seconds", "helmet_color", "helmet", "gloves", "boots",	"safety_glasses", "video_files"]
+    ]
+    logger.info(f"Procesamiento de BBDD Eventos EPP completo. {len(df_result_epp)} registros consolidados.")
+    return df_result_epp
 
 def process_risk_events(db_path):
     """
@@ -44,38 +180,26 @@ def process_risk_events(db_path):
     conn = None
     try:
         conn = sqlite3.connect(db_path)
-        df = pd.read_sql_query("SELECT * FROM riesgos WHERE risk_active = 1", conn)
+        df = pd.read_sql_query("SELECT * FROM person_events WHERE event_type IS NOT NULL", conn)
         
         if df.empty:
             logger.warning("No se encontraron eventos de riesgo activos en la BBDD.")
             return pd.DataFrame() # Devolver DataFrame vacío
 
         df['timestamp'] = pd.to_datetime(df['timestamp'])
-        # Ordenar por escena y luego por tiempo
-        df = df.sort_values(by=['scene_name', 'timestamp'])
-        # Encontrar los "saltos" de tiempo
-        time_diff = df.groupby('scene_name')['timestamp'].diff()
-        
-        # Identificar el inicio de un nuevo incidente
-        is_new_incident = (time_diff.isna()) | (time_diff > pd.Timedelta(seconds=cfg.GAP_THRESHOLD_SECONDS))
-        # Crear un ID de incidente único (usando cumsum)
-        incident_grouper = is_new_incident.cumsum()
-        
-        def aggregate_video_files(series):
-            unique_files = series.dropna().unique().tolist()
-            return unique_files if unique_files else [] # Devolver lista vacía en lugar de None
+        df_reba_events = process_reba_events(df)
+        df_mac_events = process_mac_events(df)
+        df_zone_events = process_zone_events(df)
+        df_epp_events = process_epp_events(df)
 
-        # Agrupar por escena y ID de incidente, y agregar
-        summary_df = df.groupby(['scene_name', incident_grouper.rename('incident_id')]).agg(
-            t_start=('timestamp', 'min'),
-            t_end=('timestamp', 'max'),
-            # Si se requiere, crear una lista de archivos de video para este incidente
-            video_files=('video_file', aggregate_video_files) 
-        ).reset_index()
+        summary_df = pd.concat(
+            [df_reba_events, df_mac_events, df_zone_events, df_epp_events],
+            ignore_index=True,
+            sort=False
+        ).drop(columns=['incident_id'])
 
-        # Calcular la duración
-        summary_df['duration_seconds'] = (summary_df['t_end'] - summary_df['t_start']).dt.total_seconds()
         logger.info(f"Procesamiento de BBDD completo. {len(df)} registros consolidados en {len(summary_df)} incidentes.")
+        
         return summary_df
 
     except Exception as e:
@@ -90,18 +214,7 @@ def enrich_summary_data(summary_df, video_url_map):
     Toma el DataFrame de incidentes y lo enriquece con metadatos
     y las URLs de los videos finales.
     """
-    logger.info(f"Cargando metadatos desde {cfg.METADATA_FILE_PATH}")
-    try:
-        with open(cfg.METADATA_FILE_PATH, 'r', encoding='utf-8') as f:
-            metadata_json = json.load(f)
-        metadata_df = pd.DataFrame.from_dict(metadata_json, orient='index')
-        metadata_df = metadata_df.reset_index().rename(columns={'index': 'scene_name'})
-        
-        logger.info("Uniendo incidentes con metadatos...")
-        enriched_df = pd.merge(summary_df, metadata_df, on='scene_name', how='left')
-    except Exception as e:
-        logger.error(f"Error cargando o uniendo metadatos: {e}. Continuará sin metadatos.")
-        enriched_df = summary_df # Continuar sin enriquecimiento
+    enriched_df = summary_df # Continuar sin enriquecimiento
         
     # Enriquecer con URLs de Video
     if not video_url_map:
@@ -112,7 +225,7 @@ def enrich_summary_data(summary_df, video_url_map):
         enriched_df['video_url'] = enriched_df['final_video_file'].map(video_url_map)
     
     # Limpiar columnas internas
-    final_cols = [col for col in enriched_df.columns if col not in ['incident_id', 'video_files', 'final_video_file']]
+    final_cols = [col for col in enriched_df.columns if col not in ['video_files', 'final_video_file']]
     enriched_df = enriched_df[final_cols]
     
     return enriched_df

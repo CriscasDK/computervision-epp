@@ -17,7 +17,6 @@ class ConfigUploader:
     # --- Configuración de Rutas Locales ---
     LOG_DIR = os.environ.get("LOG_DIR", "logs")
     CLIPS_DIR = os.environ.get("CLIPS_DIR", "risk_clips") # Carpeta de salida (mapeada por Docker)
-    METADATA_FILE_PATH = os.environ.get("METADATA_FILE_PATH", "/app/config_data/risk_metadata.json")
 
     # --- Scheduler ---
     HOURS_SCHEDULER_ACTIVE = os.environ.get("HOURS_SCHEDULER_ACTIVE", "[1, 4, 7, 10, 13, 16, 19, 22]")
@@ -29,8 +28,8 @@ class ConfigUploader:
     # --- Configuración de Azure ---
     AZURE_ACCOUNT_NAME = os.environ.get("AZURE_ACCOUNT_NAME")
     AZURE_CONTAINER_NAME = os.environ.get("AZURE_CONTAINER_NAME")
-    AZURE_CSV_PATH = os.environ.get("AZURE_CSV_PATH", "risk_detection_csv_results")
-    AZURE_VIDEO_PATH = os.environ.get("AZURE_VIDEO_PATH", "risk_detection_video_clips_results")
+    AZURE_CSV_PATH = os.environ.get("AZURE_CSV_PATH", "events_detection_csv_results")
+    AZURE_VIDEO_PATH = os.environ.get("AZURE_VIDEO_PATH", "events_detection_video_clips_results")
     AZURE_STORAGE_ACCOUNT_URL = os.environ.get("AZURE_STORAGE_ACCOUNT_URL")
     AZURE_STORAGE_CONNECTION_STRING = os.environ.get('AZURE_STORAGE_CONNECTION_STRING')
     SAS_EXPIRATION_DAYS = int(os.environ.get("SAS_EXPIRATION_DAYS", "1000"))

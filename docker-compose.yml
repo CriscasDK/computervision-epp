@@ -2,12 +2,12 @@
 version: "3.8"
 
 services:
-  # --- Servicio de Detección de Riesgos (8am - 6pm) ---
+  # --- Servicio de Detección de eventos (8am - 6pm) ---
   detection-service:
     build:
       context: ./risk_detection
       dockerfile: Dockerfile
-    container_name: risk-detector-service
+    container_name: workzone_monitor
     env_file: .env
     # --- Configuración de Red para la Baliza ---
     # "host" compartiria la red del Windows Server con el contenedor. Esencial para que el contenedor pueda acceder a IP de la red local como la baliza (192.168.1.101).
@@ -39,7 +39,6 @@ services:
     env_file: .env
     volumes:
       - ./logs:/app/logs
-      - ./config_data:/app/config_data:ro
       - ./risk_clips:/app/risk_clips
     # Asegura que se reinicie si falla
     restart: always
